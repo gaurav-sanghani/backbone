@@ -167,7 +167,7 @@
       var now = this.attributes, escaped = this._escapedAttributes;
 
       // Run validation.
-      if (!options.silent && this.validate && !this._performValidation(attrs, options)) return false;
+      if (this.validate && !this._performValidation(attrs, options)) return false;
 
       // Check for changes of `id`.
       if ('id' in attrs) this.id = attrs.id;
@@ -430,6 +430,18 @@
       }
       return this;
     },
+    
+    set : function(models, options) {
+      if (_.isArray(models)) {
+	for (var i = 0, l = models.length; i < l; i++) {
+	  this._set(models[i], options);
+	}
+      }
+      else {
+	this._set(models, options);
+      }
+      return this;
+    },
 
     // Get a model from the set by id.
     get : function(id) {
@@ -520,6 +532,9 @@
 
     // Reset all internal state. Called when the collection is refreshed.
     _reset : function(options) {
+      for (var i = this.length - 1; i >= 0; i--) {
+		this.remove(this.at(i));
+      }
       this.length = 0;
       this.models = [];
       this._byId  = {};
@@ -533,8 +548,8 @@
       if (!(model instanceof Backbone.Model)) {
         model = new this.model(model, {collection: this});
       }
-      var already = this.getByCid(model);
-      if (already) throw new Error(["Can't add the same model to a set twice", already.id]);
+      var already = this.get(model) || this.getByCid(model);
+      if (already) return false;
       this._byId[model.id] = model;
       this._byCid[model.cid] = model;
       model.collection = this;
@@ -542,7 +557,10 @@
       this.models.splice(index, 0, model);
       model.bind('all', this._boundOnModelEvent);
       this.length++;
-      if (!options.silent) model.trigger('add', model, this, options);
+      if (!options.silent) {
+	      this.trigger('add', model, this, options);
+	      model.trigger('add', model, this, options);
+      }
       return model;
     },
 
@@ -554,11 +572,28 @@
       if (!model) return null;
       delete this._byId[model.id];
       delete this._byCid[model.cid];
-      delete model.collection;
       this.models.splice(this.indexOf(model), 1);
       this.length--;
       if (!options.silent) model.trigger('remove', model, this, options);
       model.unbind('all', this._boundOnModelEvent);
+      delete model.collection; //delete this at the end, since the model may still make use of it in the various functions bound to the remove event
+      return model;
+    },
+    
+    // This is the internal implementation of inserting a single element
+    _set : function(model, options) {
+      options || (options = {});
+      oldModel = this.get(model) || this.getByCid(model);
+      this._byId[model.id] = model;
+      this._byCid[model.cid] = model;
+      model.collection = this;
+      if (!oldModel) {
+        var index = this.comparator ? this.sortedIndex(model, this.comparator) : this.length;
+        this.models.splice(index, 0, model);
+        this.length++;
+      }
+      model.bind('all', this._boundOnModelEvent);
+      if (!options.silent) this.trigger('set', model, this, options);
       return model;
     },
 
